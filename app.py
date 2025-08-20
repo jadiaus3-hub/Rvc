@@ -3,7 +3,8 @@ import time
 import os
 import numpy as np
 from audio_utils import validate_audio_file, get_audio_info
-from mock_processing import MockVoiceConverter, MockVocalSeparator, MockModelTrainer
+from mock_processing import MockVoiceConverter, MockVocalSeparator
+from rvc_trainer import RVCTrainer, TrainingConfig, create_trainer
 import tempfile
 
 # Initialize session state
@@ -17,6 +18,10 @@ if 'conversion_history' not in st.session_state:
     st.session_state.conversion_history = []
 if 'trained_models' not in st.session_state:
     st.session_state.trained_models = []
+if 'rvc_trainer' not in st.session_state:
+    st.session_state.rvc_trainer = None
+if 'training_logs' not in st.session_state:
+    st.session_state.training_logs = []
 
 # Page configuration
 st.set_page_config(
@@ -73,35 +78,22 @@ with st.sidebar:
                 st.write(f"**Epochs:** {model['epochs']}")
                 st.write(f"**Created:** {model['created']}")
                 
-                # Create download button for each trained model
-                import io
-                import zipfile
-                
-                # Create realistic model file
-                zip_buffer = io.BytesIO()
-                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                    # Model weights
-                    model_weights = np.random.bytes(1024 * 1024 * 2)  # 2MB
-                    zip_file.writestr(f"{model['name'].replace(' ', '_')}_weights.pth", model_weights)
+                # Download real trained model
+                if 'model_path' in model and os.path.exists(model['model_path']):
+                    with open(model['model_path'], 'rb') as f:
+                        model_file_data = f.read()
                     
-                    # Config
-                    config = f"""model_name: {model['name']}
-speaker_name: {model['speaker']}
-epochs: {model['epochs']}
-created: {model['created']}
-version: 1.0"""
-                    zip_file.writestr("config.json", config)
-                
-                model_data = zip_buffer.getvalue()
-                
-                st.download_button(
-                    f"📥 Download {model['name']}",
-                    data=model_data,
-                    file_name=f"{model['name'].replace(' ', '_')}_RVC_Model.zip",
-                    mime="application/zip",
-                    key=f"download_{i}",
-                    help=f"ขนาดไฟล์: ~{len(model_data)//1024//1024}MB"
-                )
+                    st.download_button(
+                        f"📥 Download {model['name']}",
+                        data=model_file_data,
+                        file_name=f"{model['name'].replace(' ', '_')}_trained.pth",
+                        mime="application/octet-stream",
+                        key=f"download_{i}",
+                        help=f"โมเดลที่เทรนจริง - {len(model_file_data) / 1024 / 1024:.1f} MB"
+                    )
+                else:
+                    st.warning("⚠️ Model file not found")
+                    st.info("โมเดลที่เทรนเสร็จแล้ว กรุณาเทรนใหม่อีกครั้ง")
     
     # Processing settings
     st.subheader("⚙️ Processing Settings")
@@ -448,196 +440,165 @@ with tab3:
     with training_col2:
         st.subheader("🚀 Training Process")
         
-        # Initialize training state
+        # Initialize real training state
         if 'training_status' not in st.session_state:
             st.session_state.training_status = "ready"
-        if 'training_progress' not in st.session_state:
-            st.session_state.training_progress = 0
-        if 'current_epoch' not in st.session_state:
-            st.session_state.current_epoch = 0
         
         # Training button
         can_train = (dataset_files and len(dataset_files) > 0 and 
                     model_name.strip() != "" and speaker_name.strip() != "")
         
-        if st.button("🏋️ Start Training", type="primary", disabled=not can_train):
+        if st.button("🏋️ Start Real Training", type="primary", disabled=not can_train):
             if can_train:
-                st.session_state.training_status = "training"
-                st.session_state.training_progress = 0
-                st.session_state.current_epoch = 0
-                st.rerun()
+                try:
+                    # Create training configuration
+                    config = TrainingConfig(
+                        model_name=model_name,
+                        speaker_name=speaker_name,
+                        epochs=epochs,
+                        batch_size=batch_size,
+                        learning_rate=float(learning_rate)
+                    )
+                    
+                    # Create trainer
+                    trainer = create_trainer(config)
+                    
+                    # Prepare dataset
+                    with st.spinner("📦 Preparing dataset..."):
+                        if trainer.prepare_dataset(dataset_files):
+                            st.session_state.rvc_trainer = trainer
+                            st.session_state.training_status = "training"
+                            st.session_state.training_logs = [f"Started training {model_name}"]
+                            st.success("✅ Dataset prepared successfully!")
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to prepare dataset. Please check your audio files.")
+                
+                except Exception as e:
+                    st.error(f"❌ Training setup failed: {str(e)}")
+                    st.session_state.training_status = "ready"
         
-        # Training status display
-        if st.session_state.training_status == "training":
-            st.subheader("🔄 Training in Progress")
+        # Real training status display
+        if st.session_state.training_status == "training" and st.session_state.rvc_trainer:
+            st.subheader("🔄 Real Training in Progress")
             
-            # Mock training progress
-            progress_bar = st.progress(st.session_state.training_progress)
-            epoch_text = st.empty()
-            loss_text = st.empty()
+            trainer = st.session_state.rvc_trainer
+            progress_info = trainer.get_training_progress()
             
-            # Simulate training progress
-            if st.session_state.training_progress < 100:
-                import random
-                st.session_state.training_progress += 2
-                st.session_state.current_epoch = int((st.session_state.training_progress / 100) * epochs)
-                
-                epoch_text.text(f"Epoch: {st.session_state.current_epoch}/{epochs}")
-                mock_loss = 1.0 - (st.session_state.training_progress / 100) * 0.8 + random.uniform(-0.05, 0.05)
-                loss_text.text(f"Loss: {mock_loss:.4f}")
-                
-                progress_bar.progress(st.session_state.training_progress)
-                
-                # Auto-refresh during training
-                time.sleep(1)
-                st.rerun()
+            # Progress display
+            progress_bar = st.progress(progress_info['progress_percent'] / 100)
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Epoch", f"{progress_info['current_epoch']}/{progress_info['total_epochs']}")
+            with col2:
+                st.metric("Current Loss", f"{progress_info['current_loss']:.6f}")
+            with col3:
+                st.metric("Avg Loss", f"{progress_info['average_loss']:.6f}")
+            
+            # Training logs
+            with st.expander("📝 Training Logs"):
+                for log in st.session_state.training_logs[-10:]:  # Show last 10 logs
+                    st.text(log)
+            
+            # Train one epoch at a time for UI responsiveness
+            if progress_info['current_epoch'] < progress_info['total_epochs']:
+                try:
+                    with st.spinner(f"Training epoch {progress_info['current_epoch'] + 1}..."):
+                        epoch_loss = trainer.train_epoch()
+                        trainer.current_epoch += 1
+                        
+                        # Log progress
+                        log_msg = f"Epoch {trainer.current_epoch}: Loss = {epoch_loss:.6f}"
+                        st.session_state.training_logs.append(log_msg)
+                        
+                        # Auto-refresh
+                        time.sleep(0.5)
+                        st.rerun()
+                        
+                except Exception as e:
+                    st.error(f"❌ Training error: {str(e)}")
+                    st.session_state.training_status = "error"
+                    st.rerun()
             else:
                 # Training completed
                 st.session_state.training_status = "completed"
-                st.success("🎉 Training Completed Successfully!")
                 
-                # Add trained model to available models and session state
-                if model_name not in available_models:
-                    available_models.append(model_name)
-                if model_name not in st.session_state.trained_models:
-                    st.session_state.trained_models.append({
-                        'name': model_name,
-                        'speaker': speaker_name,
-                        'epochs': epochs,
-                        'created': time.strftime('%Y-%m-%d %H:%M:%S')
-                    })
-                
-                st.balloons()
+                # Save the model
+                try:
+                    model_path = trainer.save_model(f"final_{model_name}")
+                    
+                    # Add to trained models
+                    if model_name not in st.session_state.trained_models:
+                        st.session_state.trained_models.append({
+                            'name': model_name,
+                            'speaker': speaker_name,
+                            'epochs': epochs,
+                            'created': time.strftime('%Y-%m-%d %H:%M:%S'),
+                            'model_path': model_path,
+                            'final_loss': progress_info['current_loss']
+                        })
+                    
+                    st.success("🎉 Real Training Completed Successfully!")
+                    st.balloons()
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Error saving model: {str(e)}")
         
         elif st.session_state.training_status == "completed":
-            st.success("🎉 Model Training Completed Successfully!")
+            st.success("🎉 Real Model Training Completed Successfully!")
             
-            # Model info display
-            col1, col2 = st.columns(2)
-            with col1:
-                st.info(f"**📁 Model Name:** {model_name}")
-                st.info(f"**🎤 Speaker:** {speaker_name}")
-            with col2:
-                st.info(f"**🔄 Epochs:** {epochs}")
-                st.info(f"**📊 Status:** Ready for use")
-            
-            # Create realistic mock model file content
-            import io
-            import zipfile
-            
-            # Create a realistic zip file with model data
-            zip_buffer = io.BytesIO()
-            
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                # Model weights file (simulate large binary data)
-                model_weights = np.random.bytes(1024 * 1024 * 2)  # 2MB of random data
-                zip_file.writestr(f"{model_name.replace(' ', '_')}_weights.pth", model_weights)
+            # Get the latest trained model
+            if st.session_state.trained_models:
+                latest_model = st.session_state.trained_models[-1]
                 
-                # Config file
-                config_data = f"""# RVC Model Configuration
-model_name: {model_name}
-speaker_name: {speaker_name}
-epochs: {epochs}
-batch_size: {batch_size}
-learning_rate: {learning_rate}
-sample_rate: 44100
-f0_method: rmvpe
-version: 1.0
-created: {time.strftime('%Y-%m-%d %H:%M:%S')}
-model_type: RVC
-architecture: transformer
-hidden_size: 768
-num_layers: 12
-num_heads: 12
-vocab_size: 1000
-max_sequence_length: 512"""
-                zip_file.writestr("config.json", config_data)
+                # Model info display
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.info(f"**📁 Model Name:** {latest_model['name']}")
+                    st.info(f"**🎤 Speaker:** {latest_model['speaker']}")
+                with col2:
+                    st.info(f"**🔄 Epochs:** {latest_model['epochs']}")
+                    st.info(f"**📊 Final Loss:** {latest_model.get('final_loss', 'N/A')}")
                 
-                # Model info file
-                info_data = f"""Model Information:
-==================
-Name: {model_name}
-Speaker: {speaker_name}
-Training Epochs: {epochs}
-Model Size: ~50MB
-Created: {time.strftime('%Y-%m-%d %H:%M:%S')}
-Compatible with RVC v2
-
-Training Parameters:
-- Batch Size: {batch_size}
-- Learning Rate: {learning_rate}
-- Sample Rate: 44100 Hz
-- F0 Method: RMVPE
-
-This model can be used for voice conversion tasks.
-Load this model in any RVC-compatible application."""
-                zip_file.writestr("model_info.txt", info_data)
+                # Real model file download
+                st.subheader("📥 Download Real Trained Model")
+                st.markdown("**โมเดลที่เทรนจริงแล้ว!**")
                 
-                # Add some fake checkpoint files
-                for i in range(1, 4):
-                    checkpoint_data = np.random.bytes(512 * 1024)  # 512KB per checkpoint
-                    zip_file.writestr(f"checkpoint_{i*100}.pth", checkpoint_data)
-            
-            model_content = zip_buffer.getvalue()
-            
-            # Download section
-            st.subheader("📥 Download Trained Model")
-            st.markdown("**ไฟล์โมเดลพร้อมดาวน์โหลดแล้ว!**")
-            
-            download_col1, download_col2 = st.columns(2)
-            
-            with download_col1:
-                # Main model download
-                st.download_button(
-                    "🗂️ Download Model (.zip)",
-                    data=model_content,
-                    file_name=f"{model_name.replace(' ', '_')}_RVC_Model.zip",
-                    mime="application/zip",
-                    help="ดาวน์โหลดไฟล์โมเดลสำหรับใช้งาน"
-                )
-            
-            with download_col2:
-                # Config file download
-                config_content = f"""# RVC Model Configuration
-model_name: {model_name}
-speaker_name: {speaker_name}
-epochs: {epochs}
-batch_size: {batch_size}
-learning_rate: {learning_rate}
-sample_rate: 44100
-f0_method: rmvpe"""
+                # Download real model file if it exists
+                if 'model_path' in latest_model and os.path.exists(latest_model['model_path']):
+                    with open(latest_model['model_path'], 'rb') as f:
+                        model_data = f.read()
+                    
+                    st.download_button(
+                        "🗂️ Download Real Model (.pth)",
+                        data=model_data,
+                        file_name=f"{latest_model['name'].replace(' ', '_')}_trained.pth",
+                        mime="application/octet-stream",
+                        help="ไฟล์โมเดลที่เทรนจริงด้วย PyTorch"
+                    )
+                    
+                    # Model info
+                    st.info(f"📊 Model size: {len(model_data) / 1024 / 1024:.1f} MB")
+                else:
+                    st.warning("⚠️ Model file not found. Please retrain the model.")
                 
-                st.download_button(
-                    "⚙️ Download Config (.txt)",
-                    data=config_content,
-                    file_name=f"{model_name.replace(' ', '_')}_config.txt",
-                    mime="text/plain",
-                    help="ดาวน์โหลดไฟล์การตั้งค่าโมเดล"
-                )
-            
-            # File locations info
-            with st.expander("📍 File Information"):
-                st.markdown(f"""
-                **ไฟล์ที่สร้างขึ้น:**
-                
-                🗂️ **Model File:** `{model_name.replace(' ', '_')}_RVC_Model.zip`
-                - ไฟล์โมเดลหลักที่ใช้สำหรับ Voice Conversion
-                - ขนาดไฟล์: ~50MB
-                - รองรับการใช้งานในแอปพลิเคชัน RVC
-                
-                ⚙️ **Config File:** `{model_name.replace(' ', '_')}_config.txt`
-                - ไฟล์การตั้งค่าและข้อมูลโมเดล
-                - มีพารามิเตอร์การเทรนทั้งหมด
-                
-                **วิธีใช้งาน:**
-                1. ดาวน์โหลดไฟล์ Model (.zip)
-                2. อัปโหลดไฟล์ในส่วน "Upload Custom Model" 
-                3. เลือกโมเดลใหม่ในหน้า Voice Conversion
-                """)
+                # Training summary
+                with st.expander("📝 Training Summary"):
+                    st.write(f"**Model Path:** {latest_model.get('model_path', 'N/A')}")
+                    st.write(f"**Training Completed:** {latest_model['created']}")
+                    st.write(f"**Final Loss:** {latest_model.get('final_loss', 'N/A')}")
+                    
+                    if st.session_state.training_logs:
+                        st.write("**Training Logs:**")
+                        for log in st.session_state.training_logs[-5:]:
+                            st.text(log)
             
             if st.button("🔄 Train New Model"):
                 st.session_state.training_status = "ready"
-                st.session_state.training_progress = 0
+                st.session_state.rvc_trainer = None
+                st.session_state.training_logs = []
                 st.rerun()
         
         # Training tips
