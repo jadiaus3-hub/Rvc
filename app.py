@@ -15,6 +15,8 @@ if 'separated_instrumental' not in st.session_state:
     st.session_state.separated_instrumental = None
 if 'conversion_history' not in st.session_state:
     st.session_state.conversion_history = []
+if 'trained_models' not in st.session_state:
+    st.session_state.trained_models = []
 
 # Page configuration
 st.set_page_config(
@@ -32,7 +34,7 @@ st.markdown("*Streamlit clone with mocked AI processing functionality*")
 with st.sidebar:
     st.header("🔧 Model Management")
     
-    # Model selection
+    # Model selection (include trained models)
     available_models = [
         "Default RVC Model",
         "High Quality Singer",
@@ -40,6 +42,11 @@ with st.sidebar:
         "Anime Character Voice",
         "Professional Narrator"
     ]
+    
+    # Add trained models to the list
+    for trained_model in st.session_state.trained_models:
+        if trained_model['name'] not in available_models:
+            available_models.append(f"{trained_model['name']} (Custom)")
     selected_model = st.selectbox("Select Voice Model", available_models)
     
     # Model upload
@@ -56,6 +63,28 @@ with st.sidebar:
             with st.spinner("Loading model..."):
                 time.sleep(2)  # Mock loading time
             st.success("Model loaded successfully!")
+    
+    # Show trained models section
+    if st.session_state.trained_models:
+        st.subheader("🏆 Your Trained Models")
+        for i, model in enumerate(st.session_state.trained_models):
+            with st.expander(f"🎤 {model['name']}"):
+                st.write(f"**Speaker:** {model['speaker']}")
+                st.write(f"**Epochs:** {model['epochs']}")
+                st.write(f"**Created:** {model['created']}")
+                
+                if st.button(f"📥 Download {model['name']}", key=f"download_{i}"):
+                    model_content = f"""RVC Model: {model['name']}
+Speaker: {model['speaker']}
+Epochs: {model['epochs']}
+Created: {model['created']}"""
+                    st.download_button(
+                        "Click to download",
+                        data=model_content.encode('utf-8'),
+                        file_name=f"{model['name'].replace(' ', '_')}_RVC_Model.zip",
+                        mime="application/zip",
+                        key=f"dl_btn_{i}"
+                    )
     
     # Processing settings
     st.subheader("⚙️ Processing Settings")
@@ -450,25 +479,97 @@ with tab3:
                 st.session_state.training_status = "completed"
                 st.success("🎉 Training Completed Successfully!")
                 
-                # Add trained model to available models
+                # Add trained model to available models and session state
                 if model_name not in available_models:
                     available_models.append(model_name)
+                if model_name not in st.session_state.trained_models:
+                    st.session_state.trained_models.append({
+                        'name': model_name,
+                        'speaker': speaker_name,
+                        'epochs': epochs,
+                        'created': time.strftime('%Y-%m-%d %H:%M:%S')
+                    })
                 
                 st.balloons()
         
         elif st.session_state.training_status == "completed":
-            st.success("✅ Model Training Completed")
-            st.write(f"**Model:** {model_name}")
-            st.write(f"**Speaker:** {speaker_name}")
-            st.write(f"**Epochs Trained:** {epochs}")
+            st.success("🎉 Model Training Completed Successfully!")
             
-            # Download model button
-            st.download_button(
-                "📥 Download Trained Model",
-                data=b"Mock model data - RVC trained model",
-                file_name=f"{model_name}.zip",
-                mime="application/zip"
-            )
+            # Model info display
+            col1, col2 = st.columns(2)
+            with col1:
+                st.info(f"**📁 Model Name:** {model_name}")
+                st.info(f"**🎤 Speaker:** {speaker_name}")
+            with col2:
+                st.info(f"**🔄 Epochs:** {epochs}")
+                st.info(f"**📊 Status:** Ready for use")
+            
+            # Create mock model file content
+            model_content = f"""RVC Model File - {model_name}
+Speaker: {speaker_name}
+Epochs Trained: {epochs}
+Model Version: v1.0
+Created: {time.strftime('%Y-%m-%d %H:%M:%S')}
+Format: RVC Compatible
+File Size: ~50MB
+
+This is a mock trained model file.
+In a real implementation, this would contain the actual neural network weights and configuration."""
+            
+            # Download section
+            st.subheader("📥 Download Trained Model")
+            st.markdown("**ไฟล์โมเดลพร้อมดาวน์โหลดแล้ว!**")
+            
+            download_col1, download_col2 = st.columns(2)
+            
+            with download_col1:
+                # Main model download
+                st.download_button(
+                    "🗂️ Download Model (.zip)",
+                    data=model_content.encode('utf-8'),
+                    file_name=f"{model_name.replace(' ', '_')}_RVC_Model.zip",
+                    mime="application/zip",
+                    help="ดาวน์โหลดไฟล์โมเดลสำหรับใช้งาน"
+                )
+            
+            with download_col2:
+                # Config file download
+                config_content = f"""# RVC Model Configuration
+model_name: {model_name}
+speaker_name: {speaker_name}
+epochs: {epochs}
+batch_size: {batch_size}
+learning_rate: {learning_rate}
+sample_rate: 44100
+f0_method: rmvpe"""
+                
+                st.download_button(
+                    "⚙️ Download Config (.txt)",
+                    data=config_content,
+                    file_name=f"{model_name.replace(' ', '_')}_config.txt",
+                    mime="text/plain",
+                    help="ดาวน์โหลดไฟล์การตั้งค่าโมเดล"
+                )
+            
+            # File locations info
+            with st.expander("📍 File Information"):
+                st.markdown(f"""
+                **ไฟล์ที่สร้างขึ้น:**
+                
+                🗂️ **Model File:** `{model_name.replace(' ', '_')}_RVC_Model.zip`
+                - ไฟล์โมเดลหลักที่ใช้สำหรับ Voice Conversion
+                - ขนาดไฟล์: ~50MB
+                - รองรับการใช้งานในแอปพลิเคชัน RVC
+                
+                ⚙️ **Config File:** `{model_name.replace(' ', '_')}_config.txt`
+                - ไฟล์การตั้งค่าและข้อมูลโมเดล
+                - มีพารามิเตอร์การเทรนทั้งหมด
+                
+                **วิธีใช้งาน:**
+                1. ดาวน์โหลดไฟล์ Model (.zip)
+                2. อัปโหลดไฟล์ในส่วน "Upload Custom Model" 
+                3. เลือกโมเดลใหม่ในหน้า Voice Conversion
+                """)
             
             if st.button("🔄 Train New Model"):
                 st.session_state.training_status = "ready"
