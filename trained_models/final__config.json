@@ -1,0 +1,14 @@
+{
+  "model_name": "Isi",
+  "speaker_name": "Kuyj",
+  "epochs": 100,
+  "batch_size": 16,
+  "learning_rate": 0.001,
+  "sample_rate": 22050,
+  "n_fft": 1024,
+  "hop_length": 256,
+  "n_mels": 80,
+  "f0_min": 80.0,
+  "f0_max": 880.0,
+  "save_interval": 100
+}
