@@ -3,7 +3,7 @@ import time
 import os
 import numpy as np
 from audio_utils import validate_audio_file, get_audio_info
-from mock_processing import MockVoiceConverter, MockVocalSeparator
+from mock_processing import MockVoiceConverter, MockVocalSeparator, MockModelTrainer
 import tempfile
 
 # Initialize session state
@@ -74,9 +74,10 @@ with st.sidebar:
     )
 
 # Main tabs
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🎵 Voice Conversion", 
     "🎼 Vocal Separation", 
+    "🏋️ Model Training",
     "📊 Processing History",
     "ℹ️ About"
 ])
@@ -258,17 +259,17 @@ with tab2:
             key="separation_upload"
         )
         
+        # UVR5 model selection
+        uvr_models = [
+            "UVR-DeEcho-DeReverb",
+            "UVR5_Vocals_Model",
+            "Kim_Vocal_2",
+            "UVR-BVE-4B_SN-44100-1"
+        ]
+        selected_uvr_model = st.selectbox("Select UVR5 Model", uvr_models)
+        
         if separation_audio:
             st.audio(separation_audio)
-            
-            # UVR5 model selection
-            uvr_models = [
-                "UVR-DeEcho-DeReverb",
-                "UVR5_Vocals_Model",
-                "Kim_Vocal_2",
-                "UVR-BVE-4B_SN-44100-1"
-            ]
-            selected_uvr_model = st.selectbox("Select UVR5 Model", uvr_models)
             
             # Separation settings
             st.subheader("🎛️ Separation Settings")
@@ -333,6 +334,169 @@ with tab2:
                 )
 
 with tab3:
+    st.header("Model Training")
+    st.markdown("Train your own RVC voice models with custom datasets")
+    
+    training_col1, training_col2 = st.columns([1, 1])
+    
+    with training_col1:
+        st.subheader("📁 Dataset Preparation")
+        
+        # Dataset upload
+        dataset_files = st.file_uploader(
+            "Upload Training Audio Files",
+            type=['wav', 'mp3', 'flac'],
+            accept_multiple_files=True,
+            help="Upload multiple audio files (at least 10 minutes total recommended)"
+        )
+        
+        if dataset_files:
+            st.success(f"✅ {len(dataset_files)} files uploaded")
+            
+            total_duration = 0
+            st.write("**Uploaded Files:**")
+            for i, file in enumerate(dataset_files[:5]):  # Show first 5 files
+                file_info = get_audio_info(file)
+                total_duration += file_info['duration']
+                st.write(f"• {file.name} - {file_info['duration']:.1f}s")
+            
+            if len(dataset_files) > 5:
+                st.write(f"... และอีก {len(dataset_files) - 5} ไฟล์")
+            
+            st.info(f"📊 รวมความยาว: {total_duration/60:.1f} นาที")
+            
+            # Quality check
+            if total_duration < 600:  # Less than 10 minutes
+                st.warning("⚠️ แนะนำให้มีข้อมูลเสียงอย่างน้อย 10 นาที เพื่อผลลัพธ์ที่ดี")
+            else:
+                st.success("✅ ข้อมูลเสียงเพียงพอสำหรับการเทรน")
+        
+        # Model configuration
+        st.subheader("⚙️ Model Configuration")
+        
+        model_name = st.text_input(
+            "Model Name",
+            placeholder="ตัวอย่าง: MyVoiceModel_v1",
+            help="ชื่อโมเดลที่จะสร้าง"
+        )
+        
+        speaker_name = st.text_input(
+            "Speaker Name",
+            placeholder="ตัวอย่าง: นาย ก",
+            help="ชื่อผู้พูดสำหรับโมเดลนี้"
+        )
+        
+        # Training parameters
+        st.subheader("🎛️ Training Parameters")
+        
+        with st.expander("Advanced Training Settings"):
+            epochs = st.slider("Training Epochs", 100, 1000, 500, help="จำนวนรอบการเทรน")
+            batch_size = st.selectbox("Batch Size", [8, 16, 32, 64], index=1)
+            learning_rate = st.select_slider(
+                "Learning Rate", 
+                options=["0.0001", "0.0005", "0.001", "0.005"],
+                value="0.001"
+            )
+            save_frequency = st.slider("Save Every N Epochs", 50, 200, 100)
+    
+    with training_col2:
+        st.subheader("🚀 Training Process")
+        
+        # Initialize training state
+        if 'training_status' not in st.session_state:
+            st.session_state.training_status = "ready"
+        if 'training_progress' not in st.session_state:
+            st.session_state.training_progress = 0
+        if 'current_epoch' not in st.session_state:
+            st.session_state.current_epoch = 0
+        
+        # Training button
+        can_train = (dataset_files and len(dataset_files) > 0 and 
+                    model_name.strip() != "" and speaker_name.strip() != "")
+        
+        if st.button("🏋️ Start Training", type="primary", disabled=not can_train):
+            if can_train:
+                st.session_state.training_status = "training"
+                st.session_state.training_progress = 0
+                st.session_state.current_epoch = 0
+                st.rerun()
+        
+        # Training status display
+        if st.session_state.training_status == "training":
+            st.subheader("🔄 Training in Progress")
+            
+            # Mock training progress
+            progress_bar = st.progress(st.session_state.training_progress)
+            epoch_text = st.empty()
+            loss_text = st.empty()
+            
+            # Simulate training progress
+            if st.session_state.training_progress < 100:
+                import random
+                st.session_state.training_progress += 2
+                st.session_state.current_epoch = int((st.session_state.training_progress / 100) * epochs)
+                
+                epoch_text.text(f"Epoch: {st.session_state.current_epoch}/{epochs}")
+                mock_loss = 1.0 - (st.session_state.training_progress / 100) * 0.8 + random.uniform(-0.05, 0.05)
+                loss_text.text(f"Loss: {mock_loss:.4f}")
+                
+                progress_bar.progress(st.session_state.training_progress)
+                
+                # Auto-refresh during training
+                time.sleep(1)
+                st.rerun()
+            else:
+                # Training completed
+                st.session_state.training_status = "completed"
+                st.success("🎉 Training Completed Successfully!")
+                
+                # Add trained model to available models
+                if model_name not in available_models:
+                    available_models.append(model_name)
+                
+                st.balloons()
+        
+        elif st.session_state.training_status == "completed":
+            st.success("✅ Model Training Completed")
+            st.write(f"**Model:** {model_name}")
+            st.write(f"**Speaker:** {speaker_name}")
+            st.write(f"**Epochs Trained:** {epochs}")
+            
+            # Download model button
+            st.download_button(
+                "📥 Download Trained Model",
+                data=b"Mock model data - RVC trained model",
+                file_name=f"{model_name}.zip",
+                mime="application/zip"
+            )
+            
+            if st.button("🔄 Train New Model"):
+                st.session_state.training_status = "ready"
+                st.session_state.training_progress = 0
+                st.rerun()
+        
+        # Training tips
+        with st.expander("💡 Training Tips"):
+            st.markdown("""
+            **เทคนิคการเทรนโมเดลที่ดี:**
+            
+            🎤 **คุณภาพเสียง:**
+            - ใช้ไฟล์เสียงคุณภาพสูง (WAV หรือ FLAC)
+            - หลีกเลี่ยงเสียงรบกวน (background noise)
+            - ความยาวไฟล์แต่ละไฟล์ 3-10 วินาที
+            
+            📊 **ข้อมูลการเทรน:**
+            - อย่างน้อย 10 นาที สำหรับผลลัพธ์พื้นฐาน
+            - 30-60 นาที สำหรับคุณภาพดี
+            - 2+ ชั่วโมง สำหรับคุณภาพสูงสุด
+            
+            ⚡ **การตั้งค่า:**
+            - เริ่มต้นด้วย default settings
+            - เพิ่ม epochs หากผลลัพธ์ยังไม่ดี
+            - ลด learning rate หากการเทรนไม่เสถียร
+            """)
+
+with tab4:
     st.header("Processing History")
     
     if st.session_state.conversion_history:
@@ -370,7 +534,7 @@ with tab3:
     with col3:
         st.metric("Available Models", len(available_models))
 
-with tab4:
+with tab5:
     st.header("About RVC-GUI Clone")
     
     st.markdown("""
@@ -385,6 +549,7 @@ with tab4:
     - **Voice Recording**: Record audio directly in the browser
     - **Voice Conversion**: Transform voices using RVC (Retrieval-based Voice Conversion) models
     - **Vocal Separation**: Separate vocals from instrumental tracks using UVR5 models
+    - **Model Training**: Train custom voice models with your own datasets
     - **Model Management**: Upload and manage custom voice models
     - **Parameter Control**: Fine-tune conversion with pitch, strength, and formant controls
     - **Processing History**: Track your conversion activities

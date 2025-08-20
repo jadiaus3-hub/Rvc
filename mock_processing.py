@@ -167,6 +167,73 @@ class MockVocalSeparator:
         
         return bytes(wav_header) + audio_data.tobytes()
 
+class MockModelTrainer:
+    """Mock model trainer for RVC models"""
+    
+    def __init__(self):
+        self.training_status = "ready"
+        self.current_epoch = 0
+        self.total_epochs = 0
+        
+    def prepare_dataset(self, audio_files):
+        """Mock dataset preparation"""
+        time.sleep(1)
+        return True
+    
+    def start_training(self, model_name: str, speaker_name: str, 
+                      epochs: int = 500, batch_size: int = 16,
+                      learning_rate: float = 0.001):
+        """
+        Mock training process
+        
+        Args:
+            model_name: Name for the new model
+            speaker_name: Speaker identifier
+            epochs: Number of training epochs
+            batch_size: Training batch size
+            learning_rate: Learning rate for training
+            
+        Returns:
+            dict: Training configuration
+        """
+        self.training_status = "training"
+        self.current_epoch = 0
+        self.total_epochs = epochs
+        
+        return {
+            'model_name': model_name,
+            'speaker_name': speaker_name,
+            'epochs': epochs,
+            'batch_size': batch_size,
+            'learning_rate': learning_rate,
+            'status': 'started'
+        }
+    
+    def get_training_progress(self):
+        """Get current training progress"""
+        if self.training_status == "training":
+            progress = min(self.current_epoch / self.total_epochs * 100, 100)
+            return {
+                'progress': progress,
+                'current_epoch': self.current_epoch,
+                'total_epochs': self.total_epochs,
+                'status': self.training_status
+            }
+        return {'progress': 0, 'status': self.training_status}
+    
+    def update_progress(self):
+        """Mock progress update"""
+        if self.training_status == "training" and self.current_epoch < self.total_epochs:
+            self.current_epoch += 1
+            if self.current_epoch >= self.total_epochs:
+                self.training_status = "completed"
+    
+    def export_model(self, model_name: str) -> bytes:
+        """Mock model export"""
+        # Create mock model file
+        model_data = f"Mock RVC Model: {model_name}\nTrained epochs: {self.total_epochs}\nTimestamp: {time.time()}"
+        return model_data.encode('utf-8')
+
 class MockModelManager:
     """Mock model management for RVC models"""
     
