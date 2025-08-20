@@ -4,7 +4,7 @@ import os
 import numpy as np
 from audio_utils import validate_audio_file, get_audio_info
 from mock_processing import MockVoiceConverter, MockVocalSeparator
-from rvc_trainer import RVCTrainer, TrainingConfig, create_trainer
+from rvc_trainer import RVCTrainer, TrainingConfig, create_trainer, RVCInference, create_inference
 import tempfile
 
 # Initialize session state
@@ -22,6 +22,10 @@ if 'rvc_trainer' not in st.session_state:
     st.session_state.rvc_trainer = None
 if 'training_logs' not in st.session_state:
     st.session_state.training_logs = []
+if 'rvc_inference' not in st.session_state:
+    st.session_state.rvc_inference = None
+if 'selected_inference_model' not in st.session_state:
+    st.session_state.selected_inference_model = None
 
 # Page configuration
 st.set_page_config(
@@ -51,8 +55,46 @@ with st.sidebar:
     # Add trained models to the list
     for trained_model in st.session_state.trained_models:
         if trained_model['name'] not in available_models:
-            available_models.append(f"{trained_model['name']} (Custom)")
+            available_models.append(f"{trained_model['name']} (Trained)")
     selected_model = st.selectbox("Select Voice Model", available_models)
+    
+    # Check if selected model is a trained model
+    is_trained_model = "(Trained)" in selected_model
+    if is_trained_model:
+        model_name_clean = selected_model.replace(" (Trained)", "")
+        # Find the trained model
+        trained_model_info = None
+        for tm in st.session_state.trained_models:
+            if tm['name'] == model_name_clean:
+                trained_model_info = tm
+                break
+        
+        if trained_model_info and 'model_path' in trained_model_info:
+            if os.path.exists(trained_model_info['model_path']):
+                st.success(f"✅ Trained model ready: {model_name_clean}")
+                st.info(f"📊 Final Loss: {trained_model_info.get('final_loss', 'N/A')}")
+                
+                # Load inference model if not loaded or different model selected
+                if (st.session_state.selected_inference_model != model_name_clean or 
+                    st.session_state.rvc_inference is None):
+                    try:
+                        with st.spinner("Loading trained model..."):
+                            st.session_state.rvc_inference = create_inference(trained_model_info['model_path'])
+                            st.session_state.selected_inference_model = model_name_clean
+                        st.success("🎯 Model loaded for inference!")
+                    except Exception as e:
+                        st.error(f"❌ Error loading model: {str(e)}")
+                        st.session_state.rvc_inference = None
+                        st.session_state.selected_inference_model = None
+            else:
+                st.error("❌ Model file not found. Please retrain the model.")
+        else:
+            st.warning("⚠️ Model information not complete.")
+    else:
+        # Reset inference for non-trained models
+        if st.session_state.rvc_inference is not None:
+            st.session_state.rvc_inference = None
+            st.session_state.selected_inference_model = None
     
     # Model upload
     st.subheader("Upload Custom Model")
@@ -214,49 +256,95 @@ with tab1:
         # Convert button
         if st.button("🚀 Convert Voice", type="primary", disabled=input_audio is None):
             if input_audio:
-                # Processing simulation
-                progress_placeholder = st.empty()
-                progress_bar = st.progress(0)
-                status_text = st.empty()
+                # Check if using trained model
+                if is_trained_model and st.session_state.rvc_inference is not None:
+                    # Real inference
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    try:
+                        status_text.text("🧠 Using trained model for conversion...")
+                        progress_bar.progress(25)
+                        
+                        # Real voice conversion
+                        with st.spinner("Converting voice with trained model..."):
+                            converted_audio = st.session_state.rvc_inference.convert_voice(
+                                input_audio,
+                                pitch_shift,
+                                conversion_strength
+                            )
+                        
+                        progress_bar.progress(75)
+                        status_text.text("✅ Real conversion completed!")
+                        
+                        st.session_state.processed_audio = converted_audio
+                        
+                        # Add to history
+                        st.session_state.conversion_history.append({
+                            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                            'model': selected_model,
+                            'type': 'Real Inference',
+                            'parameters': {
+                                'pitch_shift': pitch_shift,
+                                'conversion_strength': conversion_strength,
+                                'formant_shift': formant_shift
+                            }
+                        })
+                        
+                        progress_bar.progress(100)
+                        st.success("🎉 Real voice conversion completed successfully!")
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"❌ Conversion failed: {str(e)}")
+                        status_text.text("❌ Conversion failed")
+                        progress_bar.progress(0)
                 
-                converter = MockVoiceConverter(selected_model)
-                
-                stages = [
-                    ("Preprocessing audio...", 20),
-                    ("Loading voice model...", 40),
-                    ("Extracting features...", 60),
-                    ("Converting voice...", 80),
-                    ("Post-processing...", 100)
-                ]
-                
-                for stage_text, progress in stages:
-                    status_text.text(stage_text)
-                    progress_bar.progress(progress)
-                    time.sleep(1.5)  # Realistic processing delay
-                
-                # Mock conversion result
-                st.session_state.processed_audio = converter.convert_voice(
-                    input_audio,
-                    pitch_shift,
-                    conversion_strength,
-                    formant_shift
-                )
-                
-                # Add to history
-                st.session_state.conversion_history.append({
-                    'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-                    'model': selected_model,
-                    'parameters': {
-                        'pitch_shift': pitch_shift,
-                        'conversion_strength': conversion_strength,
-                        'formant_shift': formant_shift
-                    }
-                })
-                
-                status_text.text("✅ Conversion completed!")
-                progress_bar.progress(100)
-                st.success("Voice conversion completed successfully!")
-                st.rerun()
+                else:
+                    # Mock conversion for non-trained models
+                    progress_placeholder = st.empty()
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    converter = MockVoiceConverter(selected_model)
+                    
+                    stages = [
+                        ("Preprocessing audio...", 20),
+                        ("Loading voice model...", 40),
+                        ("Extracting features...", 60),
+                        ("Converting voice...", 80),
+                        ("Post-processing...", 100)
+                    ]
+                    
+                    for stage_text, progress in stages:
+                        status_text.text(stage_text)
+                        progress_bar.progress(progress)
+                        time.sleep(1.5)  # Realistic processing delay
+                    
+                    # Mock conversion result
+                    st.session_state.processed_audio = converter.convert_voice(
+                        input_audio,
+                        pitch_shift,
+                        conversion_strength,
+                        formant_shift
+                    )
+                    
+                    # Add to history
+                    st.session_state.conversion_history.append({
+                        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'model': selected_model,
+                        'type': 'Mock',
+                        'parameters': {
+                            'pitch_shift': pitch_shift,
+                            'conversion_strength': conversion_strength,
+                            'formant_shift': formant_shift
+                        }
+                    })
+                    
+                    status_text.text("✅ Conversion completed!")
+                    progress_bar.progress(100)
+                    st.success("Voice conversion completed successfully!")
+                    st.rerun()
         
         # Display processed audio
         if st.session_state.processed_audio:
@@ -631,6 +719,7 @@ with tab4:
         for i, entry in enumerate(reversed(st.session_state.conversion_history[-10:])):
             with st.expander(f"Conversion {len(st.session_state.conversion_history)-i} - {entry['timestamp']}"):
                 st.write(f"**Model Used:** {entry['model']}")
+                st.write(f"**Type:** {entry.get('type', 'Unknown')}")
                 st.write("**Parameters:**")
                 for param, value in entry['parameters'].items():
                     st.write(f"  - {param.replace('_', ' ').title()}: {value}")
